@@ -4,6 +4,11 @@ const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
 const Task = require('./task')
 
+const JWT_SECRET = process.env.JWT_SECRET
+if (!JWT_SECRET) {
+    throw new Error('JWT_SECRET environment variable is required')
+}
+
 const userSchema = new mongoose.Schema({
     name: {
         type: String,
@@ -68,9 +73,13 @@ userSchema.methods.toJSON = function () {
 
 userSchema.methods.generateAuthToken = async function () {
     const user = this
-    const token = jwt.sign({ _id: user._id.toString() }, 'hardsecret')
+    const token = jwt.sign(
+        { _id: user._id.toString() },
+        JWT_SECRET,
+        { algorithm: 'HS256', expiresIn: '7d' }
+    )
 
-    user.tokens = user.tokens.concat({ token })
+    user.tokens = user.tokens.concat({ token }).slice(-5)
     await user.save()
 
     return token
@@ -92,7 +101,15 @@ userSchema.statics.findByCredentials = async (email, password) => {
     return user
 }
 
+userSchema.pre('save', async function (next) {
+    const user = this
 
+    if (user.isModified('password')) {
+        user.password = await bcrypt.hash(user.password, 8)
+    }
+
+    next()
+})
 
 // Delete user tasks when user is removed
 userSchema.pre('remove', async function (next) {
@@ -104,5 +121,3 @@ userSchema.pre('remove', async function (next) {
 const User = mongoose.model('User', userSchema)
 
 module.exports = User
-
-// https://github.com/VitthalS/ivna
